@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn as nn
 import gymnasium as gym
 import torch.nn.functional as F
+from matplotlib import pyplot as plt
 
 from torch.distributions import MultivariateNormal
 from gymnasium.wrappers import NormalizeObservation
@@ -279,4 +280,6 @@ if __name__ == "__main__":
 
     # Start experiment
     set_one_thread()
-    main(args)
+    _, rets = main(args)
+    plt.plot(range(len(rets)), rets)
+    plt.show()
