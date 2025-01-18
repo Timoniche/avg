@@ -11,6 +11,7 @@ from torch.distributions import MultivariateNormal
 from gymnasium.wrappers import NormalizeObservation
 from datetime import datetime
 from incremental_rl.experiment_tracker import record_video
+from kan import KAN
 
 
 def orthogonal_weight_init(m):
@@ -85,6 +86,28 @@ class Actor(nn.Module):
         return action, action_info
 
 
+class QKan(nn.Module):
+    def __init__(self, obs_dim, action_dim, device, n_hid):
+        super(QKan, self).__init__()
+        self.device = device
+
+        self.phi = KAN(
+            width=[obs_dim + action_dim, 8, 8],
+            grid=5,
+            k=3,
+            device=device,
+        )
+        self.q = nn.Linear(8, 1)
+        self.apply(orthogonal_weight_init)
+        self.to(device=device)
+
+    def forward(self, obs, action):
+        x = torch.cat((obs, action), -1).to(self.device)
+        phi = self.phi(x)
+        phi = phi / torch.norm(phi, dim=1).view((-1, 1))
+        return self.q(phi).view(-1)
+
+
 class Q(nn.Module):
     def __init__(self, obs_dim, action_dim, device, n_hid):
         super(Q, self).__init__()
@@ -114,7 +137,8 @@ class AVG:
         self.steps = 0
 
         self.actor = Actor(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_actor)
-        self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        self.Q = QKan(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        # self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
 
         self.popt = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor_lr, betas=cfg.betas)
         self.qopt = torch.optim.Adam(self.Q.parameters(), lr=cfg.critic_lr, betas=cfg.betas)
@@ -283,3 +307,4 @@ if __name__ == "__main__":
     _, rets = main(args)
     plt.plot(range(len(rets)), rets)
     plt.show()
+    plt.savefig(f'rewards_{args.env}.png')
