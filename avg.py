@@ -18,6 +18,7 @@ def orthogonal_weight_init(m):
         nn.init.orthogonal_(m.weight.data)
         m.bias.data.fill_(0.0)
 
+
 def human_format_numbers(num, use_float=False):
     # Make human readable short-forms for large numbers
     magnitude = 0
@@ -28,6 +29,7 @@ def human_format_numbers(num, use_float=False):
     if use_float:
         return '%.2f%s' % (num, ['', 'K', 'M', 'G', 'T', 'P'][magnitude])
     return '%d%s' % (num, ['', 'K', 'M', 'G', 'T', 'P'][magnitude])
+
 
 def set_one_thread():
     '''
@@ -41,6 +43,7 @@ def set_one_thread():
 
 class Actor(nn.Module):
     """ Continous MLP Actor for Soft Actor-Critic """
+
     def __init__(self, obs_dim, action_dim, device, n_hid):
         super(Actor, self).__init__()
         self.device = device
@@ -61,18 +64,18 @@ class Actor(nn.Module):
         self.apply(orthogonal_weight_init)
         self.to(device=device)
 
-    def forward(self, obs):        
+    def forward(self, obs):
         phi = self.phi(obs.to(self.device))
-        phi = phi / torch.norm(phi, dim=1).view((-1, 1))       
+        phi = phi / torch.norm(phi, dim=1).view((-1, 1))
         mu = self.mu(phi)
         log_std = self.log_std(phi)
         log_std = torch.clamp(log_std, self.LOG_STD_MIN, self.LOG_STD_MAX)
 
-        dist = MultivariateNormal(mu, torch.diag_embed(log_std.exp()))        
+        dist = MultivariateNormal(mu, torch.diag_embed(log_std.exp()))
         action_pre = dist.rsample()
         lprob = dist.log_prob(action_pre)
         lprob -= (2 * (np.log(2) - action_pre - F.softplus(-2 * action_pre))).sum(axis=1)
-        
+
         # N.B: Tanh must be applied _only_ after lprob estimation of dist sampled action!! 
         #   A mistake here can break learning :/ 
         action = torch.tanh(action_pre)
@@ -91,7 +94,7 @@ class Q(nn.Module):
             nn.Linear(obs_dim + action_dim, n_hid),
             nn.LeakyReLU(),
             nn.Linear(n_hid, n_hid),
-            nn.LeakyReLU(),            
+            nn.LeakyReLU(),
         )
         self.q = nn.Linear(n_hid, 1)
         self.apply(orthogonal_weight_init)
@@ -102,16 +105,16 @@ class Q(nn.Module):
         phi = self.phi(x)
         phi = phi / torch.norm(phi, dim=1).view((-1, 1))
         return self.q(phi).view(-1)
-       
+
 
 class AVG:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.steps = 0  
-        
+        self.steps = 0
+
         self.actor = Actor(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_actor)
         self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
-        
+
         self.popt = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor_lr, betas=cfg.betas)
         self.qopt = torch.optim.Adam(self.Q.parameters(), lr=cfg.critic_lr, betas=cfg.betas)
 
@@ -128,19 +131,19 @@ class AVG:
         action, lprob = action.to(self.device), kwargs['lprob']
 
         #### Q loss
-        q = self.Q(obs, action.detach())    # N.B: Gradient should NOT pass through action here
+        q = self.Q(obs, action.detach())  # N.B: Gradient should NOT pass through action here
         with torch.no_grad():
             next_action, action_info = self.actor(next_obs)
             next_lprob = action_info['lprob']
             q2 = self.Q(next_obs, next_action)
             target_V = q2 - self.alpha * next_lprob
 
-        delta = reward + (1 - done) *  self.gamma * target_V - q
+        delta = reward + (1 - done) * self.gamma * target_V - q
         qloss = delta ** 2
         ####
 
         # Policy loss
-        ploss = self.alpha * lprob - self.Q(obs, action) # N.B: USE reparametrized action
+        ploss = self.alpha * lprob - self.Q(obs, action)  # N.B: USE reparametrized action
         self.popt.zero_grad()
         ploss.backward()
         self.popt.step()
@@ -150,7 +153,6 @@ class AVG:
         self.qopt.step()
 
         self.steps += 1
-
 
     def save(self, model_dir, unique_str):
         model = {
@@ -181,7 +183,7 @@ def main(args):
     ####
 
     # Learner
-    args.obs_dim =  env.observation_space.shape[0]
+    args.obs_dim = env.observation_space.shape[0]
     args.action_dim = env.action_space.shape[0]
     agent = AVG(args)
 
@@ -190,16 +192,16 @@ def main(args):
     ret, step = 0, 0
     terminated, truncated = False, False
     obs, _ = env.reset()
-    ep_tic = time.time()    
+    ep_tic = time.time()
     try:
         for t in range(args.N):
             # N.B: Action is a torch.Tensor
-            action, action_info = agent.compute_action(obs)                
+            action, action_info = agent.compute_action(obs)
             sim_action = action.detach().cpu().view(-1).numpy()
 
             # Receive reward and next state
             next_obs, reward, terminated, truncated, _ = env.step(sim_action)
-            agent.update(obs, action, next_obs, reward, terminated, **action_info)            
+            agent.update(obs, action, next_obs, reward, terminated, **action_info)
             ret += reward
             step += 1
 
@@ -224,17 +226,16 @@ def main(args):
 
     if not (terminated or truncated):
         # N.B: We're adding a partial episode just to make plotting easier. But this data point shouldn't be used
-        print("Appending partial episode #{}, length: {}, Total Steps: {}".format(len(rets), step, t+1))
+        print("Appending partial episode #{}, length: {}, Total Steps: {}".format(len(rets), step, t + 1))
         rets.append(ret)
         ep_steps.append(step)
-    
+
     # Save returns and args before exiting run
     if args.save_model:
         agent.save(model_dir=args.results_dir, unique_str=f"{run_id}_model")
 
+    print("Run with id: {} took {:.3f}s!".format(run_id, time.time() - tic))
 
-    print("Run with id: {} took {:.3f}s!".format(run_id, time.time()-tic))
-    
     # Eval
     if args.n_eval:
         record_video(env, agent, num_episodes=args.n_eval, video_filename=f"{args.results_dir}/{run_id}.avi")
@@ -245,7 +246,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--env', default="Humanoid-v4", type=str, help="e.g., 'Humanoid-v4'")
-    parser.add_argument('--seed', default=42, type=int, help="Seed for random number generator")       
+    parser.add_argument('--seed', default=42, type=int, help="Seed for random number generator")
     parser.add_argument('--N', default=10001000, type=int, help="# timesteps for the run")
     # SAVG params
     parser.add_argument('--actor_lr', default=0.0063, type=float, help="Actor step size")
@@ -254,17 +255,17 @@ if __name__ == "__main__":
     parser.add_argument('--gamma', default=0.99, type=float, help="Discount factor")
     parser.add_argument('--alpha_lr', default=0.07, type=float, help="Entropy Coefficient for AVG")
     parser.add_argument('--l2_actor', default=0, type=float, help="L2 Regularization")
-    parser.add_argument('--l2_critic', default=0, type=float, help="L2 Regularization")    
+    parser.add_argument('--l2_critic', default=0, type=float, help="L2 Regularization")
     parser.add_argument('--nhid_actor', default=256, type=int)
     parser.add_argument('--nhid_critic', default=256, type=int)
     # Miscellaneous
     parser.add_argument('--checkpoint', default=50000, type=int, help="Save plots and rets every checkpoint")
     parser.add_argument('--results_dir', default="./results", type=str, help="Location to store results")
-    parser.add_argument('--device', default="cpu", type=str)    
+    parser.add_argument('--device', default="cpu", type=str)
     parser.add_argument('--save_model', action='store_true', default=False)
     parser.add_argument('--n_eval', default=0, type=int, help="Number of eval episodes")
     args = parser.parse_args()
-    
+
     # Adam 
     args.betas = [args.beta1, 0.999]
 
@@ -272,10 +273,10 @@ if __name__ == "__main__":
     if torch.cuda.is_available() and "cuda" in args.device:
         args.device = torch.device(args.device)
     else:
-        args.device = torch.device("cpu")    
+        args.device = torch.device("cpu")
 
     args.algo = "AVG"
-    
+
     # Start experiment
     set_one_thread()
     main(args)
