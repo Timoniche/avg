@@ -12,7 +12,7 @@ from gymnasium.wrappers import NormalizeObservation
 from datetime import datetime
 from incremental_rl.experiment_tracker import record_video
 from kan import KAN
-
+from fastkan import FastKAN
 
 def orthogonal_weight_init(m):
     """ Orthogonal weight initialization for neural networks """
@@ -86,6 +86,26 @@ class Actor(nn.Module):
         return action, action_info
 
 
+class QFast(nn.Module):
+    def __init__(self, obs_dim, action_dim, device, n_hid):
+        super(QFast, self).__init__()
+        self.device = device
+
+        self.phi = FastKAN(
+            layers_hidden=[obs_dim + action_dim, 8, 8],
+            num_grids=5,
+        )
+        self.q = nn.Linear(8, 1)
+        # self.apply(orthogonal_weight_init)
+        self.to(device=device)
+
+    def forward(self, obs, action):
+        x = torch.cat((obs, action), -1).to(self.device)
+        phi = self.phi(x)
+        phi = phi / torch.norm(phi, dim=1).view((-1, 1))
+        return self.q(phi).view(-1)
+
+
 class QKan(nn.Module):
     def __init__(self, obs_dim, action_dim, device, n_hid):
         super(QKan, self).__init__()
@@ -137,7 +157,8 @@ class AVG:
         self.steps = 0
 
         self.actor = Actor(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_actor)
-        self.Q = QKan(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        self.Q = QFast(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        # self.Q = QKan(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
         # self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
 
         self.popt = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor_lr, betas=cfg.betas)
