@@ -92,7 +92,7 @@ class QFast(nn.Module):
         self.device = device
 
         self.phi = FastKAN(
-            layers_hidden=[obs_dim + action_dim, 8, 8],
+            layers_hidden=[obs_dim + action_dim, 64, 8],
             num_grids=5,
         )
         self.q = nn.Linear(8, 1)
@@ -241,7 +241,7 @@ def main(args):
     # Learner
     args.obs_dim = env.observation_space.shape[0]
     args.action_dim = env.action_space.shape[0]
-    agent = AVG(args, compare_kan=True)
+    agent = AVG(args, compare_kan=False)
 
     # Interaction     
     rets, ep_steps = [], []
