@@ -151,15 +151,25 @@ class Q(nn.Module):
         return self.q(phi).view(-1)
 
 
+
+def params(model):
+    return sum(p.numel() for p in model.parameters())
+
 class AVG:
-    def __init__(self, cfg):
+    def __init__(self, cfg, compare_kan):
         self.cfg = cfg
         self.steps = 0
 
         self.actor = Actor(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_actor)
-        self.Q = QFast(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
-        # self.Q = QKan(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
-        # self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        if compare_kan:
+            print('KAN mode')
+            self.Q = QFast(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        else:
+            print('MLP mode')
+            # self.Q = QKan(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+            self.Q = Q(obs_dim=cfg.obs_dim, action_dim=cfg.action_dim, device=cfg.device, n_hid=cfg.nhid_critic)
+        params_cnt = params(self.Q)
+        print(f'params_cnt: {params_cnt}')
 
         self.popt = torch.optim.Adam(self.actor.parameters(), lr=cfg.actor_lr, betas=cfg.betas)
         self.qopt = torch.optim.Adam(self.Q.parameters(), lr=cfg.critic_lr, betas=cfg.betas)
@@ -231,7 +241,7 @@ def main(args):
     # Learner
     args.obs_dim = env.observation_space.shape[0]
     args.action_dim = env.action_space.shape[0]
-    agent = AVG(args)
+    agent = AVG(args, compare_kan=True)
 
     # Interaction     
     rets, ep_steps = [], []
